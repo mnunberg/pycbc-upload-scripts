@@ -1,0 +1,4 @@
+distcache
+*.cfg
+*.pyc
+index.html
