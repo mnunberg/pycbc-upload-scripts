@@ -40,13 +40,14 @@ except IOError as e:
 
 
 for defined in opts.define:
-    section, kv = defined.split('.', 2)
-    kv = kv.split('=')
+    kv = defined.split('=', 2)
     try:
         k, v = kv
     except ValueError:
         k = kv[0]
         v = True
+
+    section, k = k.split('.')
     config.set(section, k, v)
 
 for cred in ('username', 'password'):
