@@ -9,6 +9,12 @@ from subprocess import Popen, PIPE
 from cbdist import CouchbaseRelease, S3Index
 from threading import Thread
 
+# This actually contains only the releases *before* the last release
+RELEASED_VERSIONS = (
+    '1.0.0-beta',
+    '1.0.0',
+)
+
 ap = argparse.ArgumentParser()
 ap.add_argument('--update', action='store_true', help="Re-fetch listings")
 ap.add_argument('--upload', action='store_true', help="Upload this page to S3")
@@ -41,9 +47,20 @@ for dist in s3index.dists:
     if dist.suffix == 'zip':
         continue
 
+    do_skip = False
 
-    cbrel = dist.cbrel
+    try:
+        cbrel = dist.cbrel
+    except Exception as e:
+        print e
+        continue
 
+    if cbrel.v_minor == 0 and cbrel.commit_count != 0:
+        do_skip = True
+
+    if do_skip:
+        with open("stale.txt", "a") as rej:
+            rej.write(dist.s3uri + "\n")
 
     fmtstr = '''
     <tr>

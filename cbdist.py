@@ -26,6 +26,25 @@ class CouchbaseRelease(object):
         self.gitvers = js['git_version']
         self.orig_dist = orig_dist
 
+
+        components = self.gitvers.split("-")
+        numvers = [int(x) for x in components[0].split(".") ]
+        extravers = ""
+        components.pop(0)
+
+        try:
+            commit_count = int(components[0])
+            shastring = components[1]
+
+        except ValueError:
+            extravers, commit_count, shastring = components
+
+        self.v_major, self.v_minor, self.v_patch = numvers
+        self.v_extra = extravers
+        self.commit_count = int(commit_count)
+        self.shastring = shastring
+
+
     @classmethod
     def from_distfile(cls, name, cache=CACHE):
         bname = os.path.basename(name)
@@ -35,7 +54,12 @@ class CouchbaseRelease(object):
             infourl = "http://" + cls.S3_ROOT + '/' + os.path.basename(infofile)
             print "Fetching", infourl
 
-            uo = urlopen(infourl)
+            try:
+                uo = urlopen(infourl)
+            except:
+                with open("rejected.txt", "a") as fp:
+                    fp.write(infourl.replace("http://", "s3://") + "\n")
+                raise
 
             fp = open(infofile, "wb")
             fp.write(uo.read())
@@ -44,6 +68,15 @@ class CouchbaseRelease(object):
             print infofile, "already exists.."
 
         return cls(infofile)
+
+    def __str__(self):
+        s = ("RAW: {0}, MAJ: {1}, MIN: {2}, PATCH: {3}, EXTRA: {4}, "
+             "COMMITS: {5}, SHA: {6}"
+            ).format(repr(self.js),
+                     self.v_major, self.v_minor, self.v_patch,
+                     self.v_extra, self.commit_count, self.shastring)
+        return s
+
 
 class DistFile(object):
 
@@ -149,6 +182,20 @@ class DistFile(object):
     def basename(self):
         return os.path.basename(self.path)
 
+    def _do_mod_acl(self, url):
+        url = url.replace("http", "s3")
+        po = Popen(["s3cmd", "setacl", "-P", url.replace("http", "s3")],
+                   stderr=PIPE)
+
+        _, stderr = po.communicate()
+
+        if po.returncode != 0:
+            with open("rejected.txt", "a") as fp:
+                fp.write(url + "\n")
+                fp.close()
+
+            raise Exception("Couldn't modify ACL: {0}, {1}".format(url, stderr))
+
     def make_public(self):
         for url in (self.httpuri, self.infouri):
             try:
@@ -156,9 +203,7 @@ class DistFile(object):
                 print url, "Already public.."
             except HTTPError as e:
                 if e.code == 403:
-                    print url, "not public yet.. modifying"
-                    rv = os.system("s3cmd setacl -P " + url.replace("http", "s3"))
-                    assert rv == 0
+                    self._do_mod_acl(url)
                 else:
                     raise
 
@@ -171,6 +216,7 @@ class S3Index(object):
     LISTINGS = 'distlist'
 
     def __init__(self, force_update=False, cache=CouchbaseRelease.CACHE):
+
         self.cache = os.path.join(cache, self.DNAME)
 
         if not os.path.exists(self.cache):
